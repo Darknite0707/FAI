@@ -163,11 +163,28 @@ FAI/
 
 ## Dataset
 
-This project uses a **synthetic dataset** generated to mirror the statistical properties of real-world air quality sensor data. The data is balanced across all 6 AQI categories (approximately equal samples per category) to ensure the model learns all pollution levels equally — not just the common "Good" cases.
+This project supports **two data modes** — switchable from the sidebar:
 
-- Default size: 3,000 readings
-- Configurable up to 6,000 rows from the sidebar
-- No external download required — everything is generated at runtime
+### Option 1 — Synthetic Data (default, no download needed)
+A synthetic dataset generated to mirror real-world air quality distributions. Balanced across all 6 AQI categories so the model learns every pollution level equally.
+
+- Default size: 3,000 readings (configurable up to 6,000)
+- No download required — generated at runtime
+
+### Option 2 — Real Kaggle Dataset
+
+**Air Quality Data in India (2015–2020)**  
+Source: [kaggle.com/datasets/rohanrao/air-quality-data-in-india](https://www.kaggle.com/datasets/rohanrao/air-quality-data-in-india)
+
+Real sensor readings from cities across India with columns for PM2.5, PM10, NO2, CO, O3, SO2 and more.
+
+**How to use it:**
+1. Go to the Kaggle link above and download `city_day.csv`
+2. In the app sidebar, switch **Data source** to `Kaggle CSV upload`
+3. Upload the `city_day.csv` file
+4. The model retrains instantly on real data — the hero banner updates to show **"Real Kaggle Data"**
+
+The app automatically maps Kaggle column names to the model's expected feature names and fills any missing columns (Temperature, Humidity, Wind Speed) with realistic city averages.
 
 ---
 

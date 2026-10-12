@@ -83,16 +83,8 @@ hr {
 </style>
 """, unsafe_allow_html=True)
 
-# ── Hero ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="hero">
-  <h1>Air Quality Index Prediction</h1>
-  <p>
-    <strong>Model: Gradient Boosting (XGBoost-style)</strong> &nbsp;·&nbsp;
-    Predict pollution levels from environmental sensor readings in real time
-  </p>
-</div>
-""", unsafe_allow_html=True)
+# ── Hero — rendered after sidebar so source_label is available ───────────────
+HERO_PLACEHOLDER = st.empty()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -186,6 +178,70 @@ def make_data(n: int = 1500, seed: int = 42) -> pd.DataFrame:
     return df.round(2).reset_index(drop=True)
 
 
+@st.cache_data
+def load_kaggle_csv(file) -> pd.DataFrame:
+    """
+    Accepts the Kaggle 'Air Quality Data in India' city_day.csv.
+    Auto-maps its columns to the FEATURES expected by the model.
+    Drops rows with too many nulls, fills remaining with column medians.
+    """
+    raw = pd.read_csv(file)
+
+    # Column name mapping: Kaggle name → our FEATURES name
+    rename_map = {
+        "PM2.5":    "PM2.5",
+        "PM10":     "PM10",
+        "NO":       "NO2",   # fallback if NO2 missing
+        "NO2":      "NO2",
+        "NOx":      "NO2",   # another fallback
+        "CO":       "CO",
+        "O3":       "O3",
+        "Ozone":    "O3",
+        "SO2":      "SO2",
+        "Toluene":  "SO2",   # rough proxy if SO2 missing
+    }
+    raw = raw.rename(columns=rename_map)
+
+    # Keep only the columns we need; add missing ones as NaN
+    for feat in FEATURES:
+        if feat not in raw.columns:
+            raw[feat] = np.nan
+
+    # Temperature, Humidity, WindSpeed are not in this Kaggle dataset
+    # Fill with realistic city averages
+    if raw["Temperature"].isna().all():
+        raw["Temperature"] = 25.0
+    if raw["Humidity"].isna().all():
+        raw["Humidity"] = 60.0
+    if raw["WindSpeed"].isna().all():
+        raw["WindSpeed"] = 3.0
+
+    df_out = raw[FEATURES].copy()
+
+    # Drop rows where more than half the pollutant features are NaN
+    pollutants = ["PM2.5", "PM10", "NO2", "CO", "O3", "SO2"]
+    df_out = df_out[df_out[pollutants].isna().sum(axis=1) <= 3]
+
+    # Fill remaining NaNs with median
+    df_out = df_out.fillna(df_out.median(numeric_only=True))
+    df_out = df_out.dropna().reset_index(drop=True)
+
+    # Compute AQI
+    df_out["AQI"] = (
+        0.40 * df_out["PM2.5"] +
+        0.20 * (df_out["NO2"] / 2) +
+        0.15 * (df_out["PM10"] / 3) +
+        0.10 * (df_out["CO"] * 20) +
+        0.10 * (df_out["O3"] / 2) +
+        0.05 * df_out["SO2"]
+    ).clip(0, 500).round(1)
+
+    df_out["Hour"]     = 12  # Kaggle data is daily — use noon as placeholder
+    df_out["Category"] = df_out["AQI"].apply(aqi_label)
+
+    return df_out.round(2)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Sidebar
 # ────────────────────────────────────────────────────────────────────────────
@@ -205,7 +261,27 @@ with st.sidebar:
     random_seed = st.number_input("Random seed", value=42, step=1)
 
     st.subheader("Data")
-    n_rows = st.slider("Dataset size (rows)", 600, 6000, 3000, step=300)
+    data_source = st.radio("Data source", ["Synthetic (built-in)", "Kaggle CSV upload"])
+
+    kaggle_df = None
+    if data_source == "Kaggle CSV upload":
+        uploaded = st.file_uploader(
+            "Upload city_day.csv from Kaggle",
+            type="csv",
+            help="Download from: kaggle.com/datasets/rohanrao/air-quality-data-in-india",
+        )
+        if uploaded:
+            try:
+                kaggle_df = load_kaggle_csv(uploaded)
+                st.success(f"Loaded {len(kaggle_df):,} rows from Kaggle dataset")
+            except Exception as e:
+                st.error(f"Could not parse file: {e}")
+                kaggle_df = None
+        else:
+            st.info("Upload city_day.csv to use real data.\nUsing synthetic data until then.")
+
+    if kaggle_df is None:
+        n_rows = st.slider("Synthetic dataset size", 600, 6000, 3000, step=300)
 
     st.divider()
     st.caption("Change any setting — model retrains instantly.")
@@ -214,7 +290,20 @@ with st.sidebar:
 # ────────────────────────────────────────────────────────────────────────────
 # Train
 # ────────────────────────────────────────────────────────────────────────────
-df = make_data(n_rows, int(random_seed))
+df = kaggle_df if kaggle_df is not None else make_data(n_rows, int(random_seed))
+
+source_label = "Real Kaggle Data" if kaggle_df is not None else "Synthetic Data"
+
+HERO_PLACEHOLDER.markdown(f"""
+<div class="hero">
+  <h1>Air Quality Index Prediction</h1>
+  <p>
+    <strong>Model: Gradient Boosting (XGBoost-style)</strong> &nbsp;·&nbsp;
+    Predict pollution levels from environmental sensor readings in real time
+    &nbsp;·&nbsp; <span style="background:#00c9ff33;padding:.15rem .5rem;border-radius:6px;font-size:.85rem">{source_label}</span>
+  </p>
+</div>
+""", unsafe_allow_html=True)
 
 X = df[FEATURES].values
 y = df["AQI"].values
